@@ -15,4 +15,4 @@ def accuracy(output, target, topk=(1,)):
         correct_k = correct[:k].view(-1).float().sum(0)
         res.append(correct_k.mul_(100. / batch_size))
 
-    return np.array(res)
+    return np.array(res,dtype='float')

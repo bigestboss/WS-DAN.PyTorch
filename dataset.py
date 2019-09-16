@@ -12,7 +12,7 @@ __all__ = ['CustomDataset']
 
 config = {
     # e.g. train/val/test set should be located in os.path.join(config['datapath'], 'train/val/test')
-    'datapath': 'DATA_PATH',
+    'datapath': '/data/shaozl/WS-DAN.PyTorch/dataset',
 }
 
 
@@ -33,6 +33,7 @@ class CustomDataset(Dataset):
     """
 
     def __init__(self, phase='train', shape=(512, 512)):
+        self.create_lable_map()
         assert phase in ['train', 'val', 'test']
         self.phase = phase
         self.data_path = os.path.join(config['datapath'], phase)
@@ -55,7 +56,7 @@ class CustomDataset(Dataset):
 
         if self.phase != 'test':
             # filename of image should have 'id_label.jpg/png' form
-            label = int((self.data_list[item].split('.')[0]).split('_')[-1])  # label
+            label = int(self.class_name.index(self.data_list[item].rsplit('_',2)[0].lower()))  # label
             return image, label
         else:
             # filename of image should have 'id.jpg/png' form, and simply return filename in case of 'test'
@@ -63,3 +64,11 @@ class CustomDataset(Dataset):
 
     def __len__(self):
         return len(self.data_list)
+
+    def create_lable_map(self):
+        with open('/data/shaozl/WS-DAN.PyTorch/CUB_200_2011/classes.txt') as f:
+            class_index_and_name = f.readlines()
+            class_index_and_name = [i.strip().lower() for i in class_index_and_name]
+            self.class_index = [i.split(' ', 1)[0] for i in class_index_and_name]
+            self.class_name = [i.split(' ', 1)[1].split('.',1)[1] for i in class_index_and_name]
+

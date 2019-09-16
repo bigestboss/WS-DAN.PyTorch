@@ -3,7 +3,7 @@ Created: May 04,2019 - Yuchong Gu
 Revised: May 07,2019 - Yuchong Gu
 """
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 import time
 import logging
 import warnings

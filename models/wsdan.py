@@ -111,7 +111,7 @@ class WSDAN(nn.Module):
         attention_map = (attention_map - attention_map_min) / (attention_map_max - attention_map_min)  # (B, H * W)
         attention_map = attention_map.view(batch_size, 1, H, W)  # (B, 1, H, W)
 
-        return p, feature_matrix, attention_map
+        return p, feature_matrix, attention_map #p:分类结果，bap结果，随机选择的一个map且完成归一化
 
     def load_state_dict(self, state_dict, strict=True):
         model_dict = self.state_dict()
