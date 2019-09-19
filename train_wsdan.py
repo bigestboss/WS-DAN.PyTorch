@@ -50,8 +50,8 @@ def main():
     ##################################
     # Initialize model
     ##################################
-    image_size = (512, 512)
-    num_classes = 1000
+    image_size = (448, 448)
+    num_classes = 200
     num_attentions = 32
     start_epoch = 0
 
@@ -122,8 +122,11 @@ def main():
     logging.info('')
     logging.info('Start training: Total epochs: {}, Batch size: {}, Training size: {}, Validation size: {}'.
                  format(options.epochs, options.batch_size, len(train_dataset), len(validate_dataset)))
+    print('Start training: Total epochs: {}, Batch size: {}, Training size: {}, Validation size: {}'.
+                 format(options.epochs, options.batch_size, len(train_dataset), len(validate_dataset)))
 
     for epoch in range(start_epoch, options.epochs):
+        bestval=0
         train(epoch=epoch,
               data_loader=train_loader,
               net=net,
@@ -132,7 +135,8 @@ def main():
               optimizer=optimizer,
               save_freq=options.save_freq,
               save_dir=options.save_dir,
-              verbose=options.verbose)
+              verbose=options.verbose
+              )
         val_loss = validate(data_loader=validate_loader,
                             net=net,
                             loss=loss,
@@ -156,7 +160,7 @@ def train(**kwargs):
     l2_loss = nn.MSELoss()
 
     # Default Parameters
-    beta = 1e-4
+    beta = 0.05
     theta_c = 0.5
     theta_d = 0.5
     crop_size = (256, 256)  # size of cropped images for 'See Better'
@@ -182,7 +186,13 @@ def train(**kwargs):
         ##################################
         # Raw Image
         ##################################
+        # print(X.size(2), X.size(3))
         y_pred, feature_matrix, attention_map = net(X)
+        # Normalize centermatrix
+        # feature_center=feature_center.reshape((feature_center.shape[0],-1))
+        # feature_matrix=feature_matrix.reshape((feature_matrix.shape[0],-1))
+        # feature_center=nn.functional.normalize(feature_center,2,-1)
+
 
         # loss
         batch_loss = loss(y_pred, y) + l2_loss(feature_matrix, feature_center[y])
@@ -216,6 +226,7 @@ def train(**kwargs):
             crop_images = torch.cat(crop_images, dim=0)
 
         # crop images forward
+        # print(crop_images.size(2), crop_images.size(3))
         y_pred, _, _ = net(crop_images)
 
         # loss
