@@ -33,13 +33,14 @@ class BAP(nn.Module):
     def forward(self, features, attentions):
         B = features.size(0)
         M = attentions.size(1)
-
         for i in range(M):
             AiF = self.pool(features * attentions[:, i:i + 1, ...]).view(B, 1, -1)
             if i == 0:
                 feature_matrix = AiF
             else:
                 feature_matrix = torch.cat([feature_matrix, AiF], dim=1)
+        feature_matrix = nn.functional.normalize(feature_matrix, 2, [1,2])
+
 
         return feature_matrix
 
@@ -76,8 +77,10 @@ class WSDAN(nn.Module):
         # Bilinear Attention Pooling
         self.bap = BAP(pool='GAP')
 
+
         # Classification Layer
-        self.fc = nn.Linear(self.M * self.num_features * self.expansion, self.num_classes)
+        # self.fc = nn.Linear(self.M * self.num_features * self.expansion, self.num_classes)
+        self.fc = nn.Conv2d(self.M * self.num_features, num_classes, kernel_size=1, bias=False)
 
         logging.info('WSDAN: using %s as feature extractor' % self.baseline)
 
@@ -90,7 +93,9 @@ class WSDAN(nn.Module):
         feature_matrix = self.bap(feature_maps, attention_maps)
 
         # Classification
-        p = self.fc(feature_matrix.view(batch_size, -1))
+
+        p = self.fc(feature_matrix.reshape((-1,feature_maps.size(1) * attention_maps.size(1),1, 1))*100.0)
+        p= torch.squeeze(p)
 
         # Generate Attention Map
         H, W = attention_maps.size(2), attention_maps.size(3)

@@ -12,6 +12,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
+from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
 from optparse import OptionParser
 
@@ -35,7 +36,7 @@ def main():
 
     parser.add_option('--lr', '--learning-rate', dest='lr', default=1e-3, type='float',
                       help='learning rate (default: 1e-3)')
-    parser.add_option('--sf', '--save-freq', dest='save_freq', default=1, type='int',
+    parser.add_option('--sf', '--save-freq', dest='save_freq', default=10, type='int',
                       help='saving frequency of .ckpt models (default: 1)')
     parser.add_option('--sd', '--save-dir', dest='save_dir', default='./models',
                       help='saving directory of .ckpt models (default: ./models)')
@@ -43,7 +44,7 @@ def main():
                       help='train from 1-beginning or 0-resume training (default: 1)')
 
     (options, args) = parser.parse_args()
-
+    logging.getLogger().setLevel(logging.INFO)
     logging.basicConfig(format='%(asctime)s: %(levelname)s: [%(filename)s:%(lineno)d]: %(message)s', level=logging.INFO)
     warnings.filterwarnings("ignore")
 
@@ -122,11 +123,8 @@ def main():
     logging.info('')
     logging.info('Start training: Total epochs: {}, Batch size: {}, Training size: {}, Validation size: {}'.
                  format(options.epochs, options.batch_size, len(train_dataset), len(validate_dataset)))
-    print('Start training: Total epochs: {}, Batch size: {}, Training size: {}, Validation size: {}'.
-                 format(options.epochs, options.batch_size, len(train_dataset), len(validate_dataset)))
-
+    writer = SummaryWriter(log_dir='./log', comment='WS-DAN')
     for epoch in range(start_epoch, options.epochs):
-        bestval=0
         train(epoch=epoch,
               data_loader=train_loader,
               net=net,
@@ -135,14 +133,15 @@ def main():
               optimizer=optimizer,
               save_freq=options.save_freq,
               save_dir=options.save_dir,
-              verbose=options.verbose
+              verbose=options.verbose,
+              writer=writer
               )
         val_loss = validate(data_loader=validate_loader,
                             net=net,
                             loss=loss,
                             verbose=options.verbose)
         scheduler.step()
-
+    writer.close()
 
 def train(**kwargs):
     # Retrieve training configuration
@@ -155,7 +154,7 @@ def train(**kwargs):
     save_freq = kwargs['save_freq']
     save_dir = kwargs['save_dir']
     verbose = kwargs['verbose']
-
+    writer = kwargs['writer']
     # Attention Regularization: LA Loss
     l2_loss = nn.MSELoss()
 
@@ -189,19 +188,18 @@ def train(**kwargs):
         # print(X.size(2), X.size(3))
         y_pred, feature_matrix, attention_map = net(X)
         # Normalize centermatrix
-        # feature_center=feature_center.reshape((feature_center.shape[0],-1))
-        # feature_matrix=feature_matrix.reshape((feature_matrix.shape[0],-1))
-        # feature_center=nn.functional.normalize(feature_center,2,-1)
+        feature_center=feature_center.reshape((feature_center.shape[0],-1))
+        feature_matrix=feature_matrix.reshape((feature_matrix.shape[0],-1))
+        feature_center=nn.functional.normalize(feature_center,2,-1)
 
 
         # loss
-        batch_loss = loss(y_pred, y) + l2_loss(feature_matrix, feature_center[y])
-        epoch_loss[0] += batch_loss.item()
-
+        batch_loss_1 = loss(y_pred, y) + l2_loss(feature_matrix, feature_center[y])
+        epoch_loss[0] += batch_loss_1.item()
         # backward
-        optimizer.zero_grad()
-        batch_loss.backward()
-        optimizer.step()
+        # optimizer.zero_grad()
+        # batch_loss.backward()
+        # optimizer.step()
 
         # Update Feature Center
         feature_center[y] += beta * (feature_matrix.detach() - feature_center[y])
@@ -222,21 +220,21 @@ def train(**kwargs):
                 height_max = nonzero_indices[:, 0].max()
                 width_min = nonzero_indices[:, 1].min()
                 width_max = nonzero_indices[:, 1].max()
+                # print(height_min,height_max,width_min,width_max)
                 crop_images.append(F.upsample_bilinear(X[batch_index:batch_index + 1, :, height_min:height_max, width_min:width_max], size=crop_size))
             crop_images = torch.cat(crop_images, dim=0)
-
         # crop images forward
         # print(crop_images.size(2), crop_images.size(3))
         y_pred, _, _ = net(crop_images)
 
         # loss
-        batch_loss = loss(y_pred, y)
-        epoch_loss[1] += batch_loss.item()
+        batch_loss_2 = loss(y_pred, y)
+        epoch_loss[1] += batch_loss_2.item()
 
         # backward
-        optimizer.zero_grad()
-        batch_loss.backward()
-        optimizer.step()
+        # optimizer.zero_grad()
+        # batch_loss.backward()
+        # optimizer.step()
 
         # metrics: top-1, top-3, top-5 error
         with torch.no_grad():
@@ -253,12 +251,13 @@ def train(**kwargs):
         y_pred, _, _ = net(drop_images)
 
         # loss
-        batch_loss = loss(y_pred, y)
-        epoch_loss[2] += batch_loss.item()
+        batch_loss_3 = loss(y_pred, y)
+        epoch_loss[2] += batch_loss_3.item()
 
         # backward
+        totol_loss = batch_loss_1+batch_loss_2+batch_loss_3
         optimizer.zero_grad()
-        batch_loss.backward()
+        totol_loss.backward()
         optimizer.step()
 
         # metrics: top-1, top-3, top-5 error
@@ -275,6 +274,12 @@ def train(**kwargs):
                           epoch_loss[1] / batches, epoch_acc[1, 0] / batches, epoch_acc[1, 1] / batches, epoch_acc[1, 2] / batches,
                           epoch_loss[2] / batches, epoch_acc[2, 0] / batches, epoch_acc[2, 1] / batches, epoch_acc[2, 2] / batches,
                           batch_end - batch_start))
+            writer.add_image('raw_img', X[0], (epoch+1) * 1000 + i)
+            writer.add_image('crop_mask', crop_mask[0], (epoch+1) * 1000 + i)
+            writer.add_image('crop_img', crop_images[0], (epoch+1) * 1000 + i)
+            writer.add_image('drop_mask', drop_mask[0], (epoch+1) * 1000 + i)
+            writer.add_image('drop_img', drop_images[0], (epoch+1) * 1000 + i)
+
 
     # save checkpoint model
     if epoch % save_freq == 0:
@@ -302,7 +307,8 @@ def train(**kwargs):
                   epoch_loss[1], epoch_acc[1, 0], epoch_acc[1, 1], epoch_acc[1, 2],
                   epoch_loss[2], epoch_acc[2, 0], epoch_acc[2, 1], epoch_acc[2, 2],
                   end_time - start_time))
-
+    writer.add_scalars('scalar/train',{'acc_raw':epoch_acc[0, 0],'acc_crop':epoch_acc[1, 0],'acc_drop':epoch_acc[2, 0]},epoch)
+    writer.add_scalars('scalar/train',{'loss_raw':epoch_loss[0],'loss_crop':epoch_loss[1],'loss_drop':epoch_loss[2]},epoch)
 
 def validate(**kwargs):
     # Retrieve training configuration

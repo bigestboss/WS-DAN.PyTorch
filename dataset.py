@@ -3,8 +3,10 @@ Created: May 02,2019 - Yuchong Gu
 Revised: May 07,2019 - Yuchong Gu
 """
 import os
+import numpy as np
 from PIL import Image
 import torchvision.transforms as transforms
+import inception_preprocessing
 from torch.utils.data import Dataset
 
 __all__ = ['CustomDataset']
@@ -42,12 +44,21 @@ class CustomDataset(Dataset):
         self.shape = shape
         self.config = config
 
-        # transform
-        self.transform = transforms.Compose([
-            transforms.Resize(size=(self.shape[0], self.shape[1])),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
+        if self.phase=='train':
+            self.transform = transforms.Compose([
+                transforms.Resize(size=(self.shape[0], self.shape[1])),
+                transforms.RandomHorizontalFlip(p=0.5),
+                transforms.RandomVerticalFlip(p=0.5),
+                transforms.RandomRotation(90),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            ])
+        else:
+            self.transform = transforms.Compose([
+                transforms.Resize(size=(self.shape[0], self.shape[1])),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            ])
 
     def __getitem__(self, item):
         image = Image.open(os.path.join(self.data_path, self.data_list[item])).convert('RGB')  # (C, H, W)
