@@ -20,6 +20,21 @@ from utils import accuracy
 from models import *
 from dataset import *
 
+import cv2
+
+def generate_attention_image(image, attention_map):
+    h, w, _ = image.shape
+    mask = np.mean(attention_map, axis=-1, keepdims=True)
+    mask = (mask / np.max(mask) * 255.0).astype(np.uint8)
+    mask = cv2.resize(mask, (w, h))
+
+    image = (image / 2.0 + 0.5) * 255.0
+    image = image.astype(np.uint8)
+
+    color_map = cv2.applyColorMap(mask.astype(np.uint8), cv2.COLORMAP_JET)
+    attention_image = cv2.addWeighted(image, 0.5, color_map.astype(np.uint8), 0.5, 0)
+    attention_image = cv2.cvtColor(attention_image, cv2.COLOR_BGR2RGB)
+    return attention_image
 
 def main():
     parser = OptionParser()
@@ -187,82 +202,88 @@ def train(**kwargs):
         ##################################
         # print(X.size(2), X.size(3))
         y_pred, feature_matrix, attention_map = net(X)
-        # Normalize centermatrix
+        # reshape center and bap
         feature_center=feature_center.reshape((feature_center.shape[0],-1))
         feature_matrix=feature_matrix.reshape((feature_matrix.shape[0],-1))
-        feature_center=nn.functional.normalize(feature_center,2,-1)
-
+        #get this batch's batch_center
+        batch_center = feature_center[y]
+        #Normalize centermatrix batch_center
+        batch_center=nn.functional.normalize(batch_center,2,-1)
+        # Update Feature Center
+        feature_center[y] += beta * (feature_matrix.detach() - batch_center)
+        loss_center = l2_loss(feature_matrix, batch_center)
 
         # loss
-        batch_loss_1 = loss(y_pred, y) + l2_loss(feature_matrix, feature_center[y])
+        batch_loss_1 = loss(y_pred, y)
         epoch_loss[0] += batch_loss_1.item()
         # backward
         # optimizer.zero_grad()
         # batch_loss.backward()
         # optimizer.step()
 
-        # Update Feature Center
-        feature_center[y] += beta * (feature_matrix.detach() - feature_center[y])
+
 
         # metrics: top-1, top-3, top-5 error
         with torch.no_grad():
             epoch_acc[0] += accuracy(y_pred, y, topk=(1, 3, 5))
 
-        ##################################
-        # Attention Cropping
-        ##################################
-        with torch.no_grad():
-            crop_mask = F.upsample_bilinear(attention_map, size=(X.size(2), X.size(3))) > theta_c
-            crop_images = []
-            for batch_index in range(crop_mask.size(0)):
-                nonzero_indices = torch.nonzero(crop_mask[batch_index, 0, ...])
-                height_min = nonzero_indices[:, 0].min()
-                height_max = nonzero_indices[:, 0].max()
-                width_min = nonzero_indices[:, 1].min()
-                width_max = nonzero_indices[:, 1].max()
-                # print(height_min,height_max,width_min,width_max)
-                crop_images.append(F.upsample_bilinear(X[batch_index:batch_index + 1, :, height_min:height_max, width_min:width_max], size=crop_size))
-            crop_images = torch.cat(crop_images, dim=0)
-        # crop images forward
-        # print(crop_images.size(2), crop_images.size(3))
-        y_pred, _, _ = net(crop_images)
+        # ##################################
+        # # Attention Cropping
+        # ##################################
+        # with torch.no_grad():
+        #     crop_mask = F.upsample_bilinear(attention_map, size=(X.size(2), X.size(3))) > theta_c
+        #     crop_images = []
+        #     for batch_index in range(crop_mask.size(0)):
+        #         nonzero_indices = torch.nonzero(crop_mask[batch_index, 0, ...])
+        #         height_min = nonzero_indices[:, 0].min()
+        #         height_max = nonzero_indices[:, 0].max()
+        #         width_min = nonzero_indices[:, 1].min()
+        #         width_max = nonzero_indices[:, 1].max()
+        #         # print(height_min,height_max,width_min,width_max)
+        #         crop_images.append(F.upsample_bilinear(X[batch_index:batch_index + 1, :, height_min:height_max, width_min:width_max], size=crop_size))
+        #     crop_images = torch.cat(crop_images, dim=0)
+        # # crop images forward
+        # # print(crop_images.size(2), crop_images.size(3))
+        # y_pred, _, _ = net(crop_images)
+        #
+        # # loss
+        # batch_loss_2 = loss(y_pred, y)
+        # epoch_loss[1] += batch_loss_2.item()
+        #
+        # # backward
+        # # optimizer.zero_grad()
+        # # batch_loss.backward()
+        # # optimizer.step()
+        #
+        # # metrics: top-1, top-3, top-5 error
+        # with torch.no_grad():
+        #     epoch_acc[1] += accuracy(y_pred, y, topk=(1, 3, 5))
+        #
+        # ##################################
+        # # Attention Dropping
+        # ##################################
+        # with torch.no_grad():
+        #     drop_mask = F.upsample_bilinear(attention_map, size=(X.size(2), X.size(3))) <= theta_d
+        #     drop_images = X * drop_mask.float()
+        #
+        # # drop images forward
+        # y_pred, _, _ = net(drop_images)
+        #
+        # # loss
+        # batch_loss_3 = loss(y_pred, y)
+        # epoch_loss[2] += batch_loss_3.item()
 
-        # loss
-        batch_loss_2 = loss(y_pred, y)
-        epoch_loss[1] += batch_loss_2.item()
-
+        # # metrics: top-1, top-3, top-5 error
+        # with torch.no_grad():
+        #     epoch_acc[2] += accuracy(y_pred, y, topk=(1, 3, 5))
         # backward
-        # optimizer.zero_grad()
-        # batch_loss.backward()
-        # optimizer.step()
-
-        # metrics: top-1, top-3, top-5 error
-        with torch.no_grad():
-            epoch_acc[1] += accuracy(y_pred, y, topk=(1, 3, 5))
-
-        ##################################
-        # Attention Dropping
-        ##################################
-        with torch.no_grad():
-            drop_mask = F.upsample_bilinear(attention_map, size=(X.size(2), X.size(3))) <= theta_d
-            drop_images = X * drop_mask.float()
-
-        # drop images forward
-        y_pred, _, _ = net(drop_images)
-
-        # loss
-        batch_loss_3 = loss(y_pred, y)
-        epoch_loss[2] += batch_loss_3.item()
-
-        # backward
-        totol_loss = batch_loss_1+batch_loss_2+batch_loss_3
+        # totol_loss = batch_loss_1+batch_loss_2+batch_loss_3+loss_center
+        totol_loss = batch_loss_1+loss_center
         optimizer.zero_grad()
         totol_loss.backward()
         optimizer.step()
 
-        # metrics: top-1, top-3, top-5 error
-        with torch.no_grad():
-            epoch_acc[2] += accuracy(y_pred, y, topk=(1, 3, 5))
+
 
         # end of this batch
         batches += 1
@@ -274,12 +295,15 @@ def train(**kwargs):
                           epoch_loss[1] / batches, epoch_acc[1, 0] / batches, epoch_acc[1, 1] / batches, epoch_acc[1, 2] / batches,
                           epoch_loss[2] / batches, epoch_acc[2, 0] / batches, epoch_acc[2, 1] / batches, epoch_acc[2, 2] / batches,
                           batch_end - batch_start))
-            writer.add_image('raw_img', X[0], (epoch+1) * 1000 + i)
-            writer.add_image('crop_mask', crop_mask[0], (epoch+1) * 1000 + i)
-            writer.add_image('crop_img', crop_images[0], (epoch+1) * 1000 + i)
-            writer.add_image('drop_mask', drop_mask[0], (epoch+1) * 1000 + i)
-            writer.add_image('drop_img', drop_images[0], (epoch+1) * 1000 + i)
-
+            writer.add_image('raw_img', X[0], (epoch+1) * 100+(i + 1) / verbose)
+            # writer.add_image('crop_mask', crop_mask[0], (epoch+1) * 100+(i + 1) / verbose)
+            # writer.add_image('crop_img', crop_images[0], (epoch+1) * 100+(i + 1) / verbose)
+            # writer.add_image('drop_mask', drop_mask[0], (epoch+1) * 100+(i + 1) / verbose)
+            # writer.add_image('drop_img', drop_images[0], (epoch+1) * 100+(i + 1) / verbose)
+            crop_mask = F.upsample_bilinear(attention_map, size=(X.size(2), X.size(3))) > theta_c
+            writer.add_image('attention_img', (X * crop_mask.float())[0], (epoch+1) * 100+(i + 1) / verbose)
+            # print(type(attention_map[0]))
+            # writer.add_image('attention_img',generate_attention_image(X[0],attention_map[0].cpu().numpy()) , (epoch + 1) * 100 + (i + 1) / verbose)
 
     # save checkpoint model
     if epoch % save_freq == 0:
@@ -342,25 +366,25 @@ def validate(**kwargs):
             ##################################
             y_pred_raw, feature_matrix, attention_map = net(X)
 
-            ##################################
-            # Object Localization and Refinement
-            ##################################
-            crop_mask = F.upsample_bilinear(attention_map, size=(X.size(2), X.size(3))) > theta_c
-            crop_images = []
-            for batch_index in range(crop_mask.size(0)):
-                nonzero_indices = torch.nonzero(crop_mask[batch_index, 0, ...])
-                height_min = nonzero_indices[:, 0].min()
-                height_max = nonzero_indices[:, 0].max()
-                width_min = nonzero_indices[:, 1].min()
-                width_max = nonzero_indices[:, 1].max()
-                crop_images.append(F.upsample_bilinear(X[batch_index:batch_index + 1, :, height_min:height_max, width_min:width_max], size=crop_size))
-            crop_images = torch.cat(crop_images, dim=0)
-
-            y_pred_crop, _, _ = net(crop_images)
+            # ##################################
+            # # Object Localization and Refinement
+            # ##################################
+            # crop_mask = F.upsample_bilinear(attention_map, size=(X.size(2), X.size(3))) > theta_c
+            # crop_images = []
+            # for batch_index in range(crop_mask.size(0)):
+            #     nonzero_indices = torch.nonzero(crop_mask[batch_index, 0, ...])
+            #     height_min = nonzero_indices[:, 0].min()
+            #     height_max = nonzero_indices[:, 0].max()
+            #     width_min = nonzero_indices[:, 1].min()
+            #     width_max = nonzero_indices[:, 1].max()
+            #     crop_images.append(F.upsample_bilinear(X[batch_index:batch_index + 1, :, height_min:height_max, width_min:width_max], size=crop_size))
+            # crop_images = torch.cat(crop_images, dim=0)
+            #
+            # y_pred_crop, _, _ = net(crop_images)
 
             # final prediction
-            y_pred = (y_pred_raw + y_pred_crop) / 2
-
+            # y_pred = (y_pred_raw + y_pred_crop) / 2
+            y_pred = y_pred_raw
             # loss
             batch_loss = loss(y_pred, y)
             epoch_loss += batch_loss.item()

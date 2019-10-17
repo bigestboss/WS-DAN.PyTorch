@@ -39,9 +39,8 @@ class BAP(nn.Module):
                 feature_matrix = AiF
             else:
                 feature_matrix = torch.cat([feature_matrix, AiF], dim=1)
+        feature_matrix = torch.mul(torch.sign(feature_matrix),torch.sqrt(torch.abs(feature_matrix)+1e-12))
         feature_matrix = nn.functional.normalize(feature_matrix, 2, [1,2])
-
-
         return feature_matrix
 
 
@@ -69,10 +68,11 @@ class WSDAN(nn.Module):
                 self.baseline = 'vgg'
                 self.num_features = 512
         else:
-            self.features = inception_v3(pretrained=True).get_features()
+            self.features = inception_v3(pretrained=True,transform_input=False).get_features()
 
         # Attention Maps
-        self.attentions = nn.Conv2d(self.num_features * self.expansion, self.M, kernel_size=1, bias=False)
+        self.attentions = nn.Conv2d(self.num_features * self.expansion, 192, kernel_size=1, bias=False)
+
 
         # Bilinear Attention Pooling
         self.bap = BAP(pool='GAP')
@@ -90,6 +90,7 @@ class WSDAN(nn.Module):
         # Feature Maps, Attention Maps and Feature Matrix
         feature_maps = self.features(x)
         attention_maps = self.attentions(feature_maps)
+        attention_maps = attention_maps[:, :self.M, :, :]
         feature_matrix = self.bap(feature_maps, attention_maps)
 
         # Classification

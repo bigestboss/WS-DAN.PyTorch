@@ -17,6 +17,15 @@ config = {
     'datapath': '/data/shaozl/WS-DAN.PyTorch/dataset',
 }
 
+class My_transform(object):
+    def __call__(self, img):
+        return add_and_mul(img)
+
+def add_and_mul(image):
+    image = image-0.5
+    image = image*2.0
+    return image
+
 
 class CustomDataset(Dataset):
     """
@@ -46,18 +55,26 @@ class CustomDataset(Dataset):
 
         if self.phase=='train':
             self.transform = transforms.Compose([
-                transforms.Resize(size=(self.shape[0], self.shape[1])),
+                transforms.Resize(size=(int(self.shape[0]*1.0/0.875), int(self.shape[1]*1.0/0.875))),
+                transforms.RandomCrop((self.shape[0], self.shape[1])),
                 transforms.RandomHorizontalFlip(p=0.5),
-                transforms.RandomVerticalFlip(p=0.5),
-                transforms.RandomRotation(90),
+                transforms.ColorJitter(brightness=0.125, contrast=0.5),
                 transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                My_transform()
+                # transforms.ToTensor(),
+                # transforms.Normalize(mean=[0.4729, 0.4871, 0.4217], std=[0.1589, 0.1598, 0.1681])
+                # tensor([0.4856, 0.4994, 0.4324]) tensor([0.1784, 0.1778, 0.1895]) 没有增强的mean和std
+                # tensor([0.4729, 0.4871, 0.4217]) tensor([0.1589, 0.1598, 0.1681]) 有增强的mean和std
             ])
         else:
             self.transform = transforms.Compose([
-                transforms.Resize(size=(self.shape[0], self.shape[1])),
+                # transforms.Resize(size=(self.shape[0], self.shape[1])),
+                transforms.Resize(size=(int(self.shape[0] * 1.0 / 0.875), int(self.shape[1] * 1.0 / 0.875))),
+                transforms.CenterCrop((self.shape[0], self.shape[1])),
                 transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                My_transform()
+                # transforms.Normalize(mean=[0.4862, 0.4998, 0.4311], std=[0.1796, 0.1781, 0.1904])
+                # tensor([0.4862, 0.4998, 0.4311]) tensor([0.1796, 0.1781, 0.1904]) 没有增强的mean和std
             ])
 
     def __getitem__(self, item):
