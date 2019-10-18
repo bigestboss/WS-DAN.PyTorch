@@ -129,8 +129,14 @@ def main():
     ##################################
     # Learning rate scheduling
     ##################################
+
+
+
+
+
     # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=2)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.9)
+    # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.9)
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer,gamma=0.9)
 
     ##################################
     # TRAINING
@@ -211,7 +217,10 @@ def train(**kwargs):
         batch_center=nn.functional.normalize(batch_center,2,-1)
         # Update Feature Center
         feature_center[y] += beta * (feature_matrix.detach() - batch_center)
-        loss_center = l2_loss(feature_matrix, batch_center)
+        # loss_center = l2_loss(feature_matrix, batch_center)
+        distance = torch.pow(feature_matrix-batch_center,2)
+        distance = torch.sum(distance,-1)
+        loss_center = torch.mean(distance)
 
         # loss
         batch_loss_1 = loss(y_pred, y)
