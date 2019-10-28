@@ -12,7 +12,7 @@ import logging
 import numpy as np
 import torch
 import torch.nn as nn
-
+import torch.nn.functional as F
 from models.vgg import VGG
 from models.resnet import ResNet
 from models.inception import *
@@ -71,7 +71,7 @@ class WSDAN(nn.Module):
             self.features = inception_v3(pretrained=True,transform_input=False).get_features()
 
         # Attention Maps
-        self.attentions = nn.Conv2d(self.num_features * self.expansion, 192, kernel_size=1, bias=False)
+        self.attentions = nn.Conv2d(self.num_features * self.expansion, 192, kernel_size=1, bias=True)
 
 
         # Bilinear Attention Pooling
@@ -80,7 +80,8 @@ class WSDAN(nn.Module):
 
         # Classification Layer
         # self.fc = nn.Linear(self.M * self.num_features * self.expansion, self.num_classes)
-        self.fc = nn.Conv2d(self.M * self.num_features, num_classes, kernel_size=1, bias=False)
+        self.fc = nn.Conv2d(self.M * self.num_features, num_classes, kernel_size=1, bias=True)
+
 
         logging.info('WSDAN: using %s as feature extractor' % self.baseline)
 
@@ -89,7 +90,7 @@ class WSDAN(nn.Module):
 
         # Feature Maps, Attention Maps and Feature Matrix
         feature_maps = self.features(x)
-        attention_maps = self.attentions(feature_maps)
+        attention_maps = F.relu(self.attentions(feature_maps), inplace=True)
         attention_maps = attention_maps[:, :self.M, :, :]
         feature_matrix = self.bap(feature_maps, attention_maps)
 
@@ -98,26 +99,26 @@ class WSDAN(nn.Module):
         p = self.fc(feature_matrix.reshape((-1,feature_maps.size(1) * attention_maps.size(1),1, 1))*100.0)
         p= torch.squeeze(p)
 
-        # Generate Attention Map
-        H, W = attention_maps.size(2), attention_maps.size(3)
-        if self.training:
-            # Randomly choose one of attention maps Ak
-            k_indices = np.random.randint(self.M, size=batch_size)
-            attention_map = torch.zeros(batch_size, 1, H, W).to(torch.device("cuda"))  # (B, 1, H, W)
-            for i in range(batch_size):
-                attention_map[i] = attention_maps[i, k_indices[i]:k_indices[i] + 1, ...]
-        else:
-            # Object Localization Am = mean(sum(Ak))
-            attention_map = torch.mean(attention_maps, dim=1, keepdim=True)  # (B, 1, H, W)
+        # # Generate Attention Map
+        # H, W = attention_maps.size(2), attention_maps.size(3)
+        # if self.training:
+        #     # Randomly choose one of attention maps Ak
+        #     k_indices = np.random.randint(self.M, size=batch_size)
+        #     attention_map = torch.zeros(batch_size, 1, H, W).to(torch.device("cuda"))  # (B, 1, H, W)
+        #     for i in range(batch_size):
+        #         attention_map[i] = attention_maps[i, k_indices[i]:k_indices[i] + 1, ...]
+        # else:
+        #     # Object Localization Am = mean(sum(Ak))
+        #     attention_map = torch.mean(attention_maps, dim=1, keepdim=True)  # (B, 1, H, W)
+        #
+        # # Normalize Attention Map
+        # attention_map = attention_map.view(batch_size, -1)  # (B, H * W)
+        # attention_map_max, _ = attention_map.max(dim=1, keepdim=True)  # (B, 1)
+        # attention_map_min, _ = attention_map.min(dim=1, keepdim=True)  # (B, 1)
+        # attention_map = (attention_map - attention_map_min) / (attention_map_max - attention_map_min)  # (B, H * W)
+        # attention_map = attention_map.view(batch_size, 1, H, W)  # (B, 1, H, W)
 
-        # Normalize Attention Map
-        attention_map = attention_map.view(batch_size, -1)  # (B, H * W)
-        attention_map_max, _ = attention_map.max(dim=1, keepdim=True)  # (B, 1)
-        attention_map_min, _ = attention_map.min(dim=1, keepdim=True)  # (B, 1)
-        attention_map = (attention_map - attention_map_min) / (attention_map_max - attention_map_min)  # (B, H * W)
-        attention_map = attention_map.view(batch_size, 1, H, W)  # (B, 1, H, W)
-
-        return p, feature_matrix, attention_map #p:分类结果，bap结果，随机选择的一个map且完成归一化
+        return p, feature_matrix, attention_maps #p:分类结果，bap结果，随机选择的一个map且完成归一化
 
     def load_state_dict(self, state_dict, strict=True):
         model_dict = self.state_dict()
